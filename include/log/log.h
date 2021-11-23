@@ -1,6 +1,7 @@
 #ifndef _LIYEE_LOG_H_
 
 #include <string>
+#include <chrono>
 #include <sstream>
 #include <vector>
 #include <map>
@@ -22,10 +23,10 @@
 #define LIYEE_LOG_ERROR(logger)  LIYEE_LOG__(logger, liyee::LogLevel::ERROR)
 #define LIYEE_LOG_FATAL(logger)  LIYEE_LOG__(logger, liyee::LogLevel::FATAL)
 
-
 namespace liyee
 {
 
+std::chrono::time_point<std::chrono::steady_clock> start___ = std::chrono::steady_clock::now();
 class LogLevel
 {
 public:
@@ -49,13 +50,12 @@ public:
 class LogEvent
 {
 public:
-    // LogEvent();
     LogEvent(const std::string& loggerName, const std::string& fileName, uint32_t lineNumber, LogLevel::Level level,
             pid_t threadID, pid_t fiberID, const std::string& threadName);
-    LogEvent(const std::string& loggerName, time_t m_timeStamp, time_t m_elapse, const std::string& m_fileName, uint32_t m_lineNumber,
+    LogEvent(const std::string& loggerName, time_t m_timeStamp, uint32_t m_elapse, const std::string& m_fileName, uint32_t m_lineNumber,
             LogLevel::Level level, pid_t m_threadID, pid_t m_fiberID, const std::string& m_threadName);
     const time_t            getTimeStamp()  const {return m_timeStamp;}
-    const time_t            getElapse()     const {return m_elapse;}
+    const uint32_t          getElapse()     const {return m_elapse;}
     const std::string&      getFileName()   const {return m_fileName;}
     const uint32_t          getLineNumber() const {return m_lineNumber;}
     const LogLevel::Level&  getLevel()      const {return m_level;}
@@ -66,7 +66,7 @@ public:
     std::stringstream&      getStringStream(){return m_ss;}
 private:
     time_t m_timeStamp;         // %t 时间戳
-    time_t m_elapse;            // %e 程序启动耗时
+    uint32_t m_elapse;          // %e 程序启动耗时
     std::string m_fileName;     // %F 文件名
     uint32_t m_lineNumber;      // %L 行号
     LogLevel::Level m_level;    // %p 日志等级
@@ -85,7 +85,7 @@ class LogFormatter
 public:
     typedef std::shared_ptr<LogFormatter> ptr;
     LogFormatter(std::ostream& m_outStream, const std::string& pattern);   //构造格式器，即根据”%d %t...“填充 m_fmt_items
-    void formate(LogEvent& event); //遍历vector 组合日志的各个字段
+    void format(LogEvent& event); //遍历vector 组合日志的各个字段
 
 public:
     class FormatterItem
@@ -111,14 +111,18 @@ private:
     std::string m_str;
 };
 
-class TimeStampItem : public LogFormatter::FormatterItem   //格式化序列中的原始字符串 “stringraw%p”中的 stringraw
+class TimeStampItem : public LogFormatter::FormatterItem
 {
 public:
     TimeStampItem(std::string fmt): m_fmt(fmt){}
     void format(std::ostream& os, const LogEvent& event) override
     {
-        os << event.getTimeStamp();
-        //TODO: 时间格式 %Y-%M-%D %h:%m:%s处理时间戳
+        char buf[64];
+        struct tm t;
+        time_t time = event.getTimeStamp();
+        localtime_r(&time, &t);
+        strftime(buf, sizeof(buf), m_fmt.c_str(), &t);
+        os << buf;
     }
 private:
     std::string m_fmt;
@@ -127,7 +131,12 @@ private:
 class ElapseItem : public LogFormatter::FormatterItem
 {
 public:
-    void format(std::ostream& os, const LogEvent& event) override {os << event.getElapse();}
+    void format(std::ostream& os, const LogEvent& event) override
+    {
+        
+        auto start___ = std::chrono::steady_clock::now();
+        os << event.getElapse();
+    }
 };
 
 class FileNameItem : public LogFormatter::FormatterItem
@@ -185,7 +194,7 @@ public:
     virtual void SetLevel(const LogLevel::Level& level);
     virtual void log(LogEvent& event) = 0;
 protected:
-    LogLevel::Level m_level;    //日志等级
+    LogLevel::Level m_level;    //输出日志等级阈值
     LogFormatter::ptr m_formatter;
 };
 

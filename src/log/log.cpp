@@ -45,10 +45,12 @@ LogEvent::LogEvent(const std::string& loggerName, const std::string& fileName, u
                    m_level(level), m_threadID(threadID), m_fiberID(fiberID), m_threadName(threadName)
 {
     m_timeStamp = time(NULL);
-    m_elapse = 0;
+    std::chrono::time_point<std::chrono::steady_clock> now___ = std::chrono::steady_clock::now();
+    auto ss = std::chrono::duration_cast<std::chrono::milliseconds> (now___ - start___);
+    m_elapse = ss.count();
 }
 
-LogEvent::LogEvent(const std::string& loggerName, time_t timeStamp, time_t elapse, const std::string& fileName, uint32_t lineNumber,
+LogEvent::LogEvent(const std::string& loggerName, time_t timeStamp, uint32_t elapse, const std::string& fileName, uint32_t lineNumber,
         LogLevel::Level level, pid_t threadID, pid_t fiberID, const std::string& threadName)
         :m_loggerName(loggerName), m_timeStamp(timeStamp), m_elapse(elapse), m_fileName(fileName), m_lineNumber(lineNumber),
         m_level(level), m_threadID(threadID), m_fiberID(fiberID), m_threadName(threadName)
@@ -58,15 +60,15 @@ LogEvent::LogEvent(const std::string& loggerName, time_t timeStamp, time_t elaps
 ///////////////////////////////////////////////////////////////////////////////////////////////////////
 
 
-// time_t m_timeStamp;         // %T 时间戳
-// time_t m_elapse;            // %e 程序启动耗时
-// const std::string& m_fileName;     // %F 文件名
-// uint32_t m_lineNumber;      // %L 行号
-// LogLevel::Level m_level;    // %p 日志等级
-// pid_t m_threadID;           // %t 线程ID
-// pid_t m_fiberID;            // %f 协程ID
-// std::string m_threadName;   // %n 线程名
-// std::string m_loggerName;   // %N 日志器名
+// time_t m_timeStamp;              // %T 时间戳
+// time_t m_elapse;                 // %e 程序启动耗时
+// const std::string& m_fileName;   // %F 文件名
+// uint32_t m_lineNumber;           // %L 行号
+// LogLevel::Level m_level;         // %p 日志等级
+// pid_t m_threadID;                // %t 线程ID
+// pid_t m_fiberID;                 // %f 协程ID
+// std::string m_threadName;        // %n 线程名
+// std::string m_loggerName;        // %N 日志器名
 
 LogFormatter::LogFormatter(std::ostream& outStream, const std::string& pattern): m_outStream(outStream), m_pattern(pattern)
 {
@@ -95,7 +97,18 @@ LogFormatter::LogFormatter(std::ostream& outStream, const std::string& pattern):
         ++i;
         switch(m_pattern[i])
         {
-            case 'T': m_fmt_items.push_back(FormatterItem::ptr(new TimeStampItem("%Y-%M-%D %h:%m:%s"))); break;
+            case 'T': 
+            {
+                int j = ++i;
+                std::string timeFormat;
+                if(m_pattern[j++] == '{')
+                {
+                    while(m_pattern[j] != '}' && j < m_pattern.size())
+                        timeFormat.append(1, m_pattern[j++]);
+                    i = j;
+                }
+                m_fmt_items.push_back(FormatterItem::ptr(new TimeStampItem(timeFormat))); break;
+            }
             case 'e': m_fmt_items.push_back(FormatterItem::ptr(new ElapseItem())); break;
             case 'F': m_fmt_items.push_back(FormatterItem::ptr(new FileNameItem())); break;
             case 'L': m_fmt_items.push_back(FormatterItem::ptr(new LineNumberItem())); break;
@@ -110,39 +123,7 @@ LogFormatter::LogFormatter(std::ostream& outStream, const std::string& pattern):
     m_fmt_items.push_back(FormatterItem::ptr(new StringItem(str)));   //非%字符会continue跳过，处理最后一个字符串
 }
 
-
-// //这个版本不能实现 “%%”的解析，不能输出%
-// LogFormatter::LogFormatter(std::ostream& outStream, const std::string& m_pattern): m_outStream(outStream)
-// {
-//     for(int i = 0; i < m_pattern.size(); ++i)
-//     {
-//         int j = i;
-//         while(j < m_pattern.size() && m_pattern[j] != '%') //j指向%
-//             ++j;
-//         if(j != i)
-//             m_fmt_items.push_back(FormatterItem::ptr>(new StringItem(m_pattern.substr(i, j-i))));
-//         if(j >= m_pattern.size()) //如果是最后一个字符串的话，会出现 j=m_pattern.size()的情况，避免后边i访问越界
-//             break;
-//         i = j + 1;    //i指向%后边的字母
-
-//         switch(m_pattern[i])
-//         {
-//             case 'T': m_fmt_items.push_back(FormatterItem::ptr>(new TimeStampItem("%Y-%M-%D %h:%m:%s"))); break;
-//             case 'e': m_fmt_items.push_back(FormatterItem::ptr>(new ElapseItem())); break;
-//             case 'F': m_fmt_items.push_back(FormatterItem::ptr>(new FileNameItem())); break;
-//             case 'L': m_fmt_items.push_back(FormatterItem::ptr>(new LineNumberItem())); break;
-//             case 'p': m_fmt_items.push_back(FormatterItem::ptr>(new LevelItem())); break;
-//             case 't': m_fmt_items.push_back(FormatterItem::ptr>(new ThreadIDItem())); break;
-//             case 'f': m_fmt_items.push_back(FormatterItem::ptr>(new FiberIDItem())); break;
-//             case 'n': m_fmt_items.push_back(FormatterItem::ptr>(new ThreadNameItem())); break;
-//             case 'N': m_fmt_items.push_back(FormatterItem::ptr>(new LoggerNameItem())); break;
-//             default : m_fmt_items.push_back(FormatterItem::ptr>(new StringItem("<<<error format>>>")));
-//         }
-//     }
-// }
-
-
-void LogFormatter::formate(LogEvent& event)
+void LogFormatter::format(LogEvent& event)
 {
     for(auto i = m_fmt_items.begin(); i != m_fmt_items.end(); ++i)
     {
@@ -174,7 +155,7 @@ StdOutAppender::StdOutAppender(const std::string& fmt, const LogLevel::Level& le
 void StdOutAppender::log(LogEvent& event)
 {
     if(event.getLevel() >= m_level)
-        m_formatter->formate(event);
+        m_formatter->format(event);
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -190,7 +171,7 @@ void Logger::AddAppender(const std::string& name, LogAppender::ptr appender)
     m_logappenders.insert(std::pair<std::string, LogAppender::ptr>(name, appender));
 }
 
-void Logger::DelAppender(const std::string& name)   //todo: 处理name字段重复的情况
+void Logger::DelAppender(const std::string& name)
 {
     auto i = m_logappenders.find(name);
     assert(i != m_logappenders.end());
@@ -229,7 +210,7 @@ void Logger::log(LogEvent& event)
 LoggerManager::LoggerManager()
 {
     m_loggers.insert(std::pair<std::string, Logger::ptr>("root", new Logger("root")));
-    m_loggers["root"]->AddAppender("stdout", std::make_shared<StdOutAppender>("%T\t%e\t%F:%L\t%p\t%t\t%f\t%n\t%N\t", LogLevel::Level::DEBUG));
+    m_loggers["root"]->AddAppender("stdout", std::make_shared<StdOutAppender>("%T{%Y-%m-%d %H:%M:%S}\t%e\t%F:%L\t%p\t%t\t%f\t%n\t%N\t", LogLevel::Level::DEBUG));
 }
 
 void LoggerManager::AddLogger(const std::string& name)
@@ -268,8 +249,5 @@ std::stringstream& LogEventSender::GetSS()
 {
     return m_event->getStringStream();
 }
-
-
-
 
 }// !namespace
