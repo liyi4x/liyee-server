@@ -19,6 +19,7 @@ include_directories(${PROJECT_SOURCE_DIR}/include)
 
 add_library(liyee SHARED 
   src/log/log.cpp
+  src/utils/util.cpp
   src/thread.cpp
   ${liyee_ProtoSrc}
   ${liyee_ProtoHds}

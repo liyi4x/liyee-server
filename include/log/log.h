@@ -10,12 +10,11 @@
 #include <fstream>
 #include <memory>
 #include <algorithm>
-#include <sys/syscall.h>  
-#include <unistd.h>
 #include <assert.h>
+#include "utils/util.h"
 
 #define LIYEE_LOG__(logger, level)\
-  liyee::LogEventSender(logger, std::make_shared<liyee::LogEvent>("logger", __FILE__, __LINE__, level, syscall(SYS_gettid), 0, "threadName")).GetSS()
+  liyee::LogEventSender(logger, std::make_shared<liyee::LogEvent>(logger->GetName(), __FILE__, __LINE__, level, liyee::GetThreadId(), liyee::GetFiberId(), liyee::GetThreadName())).GetSS()
 #define LIYEE_LOG_DEBUG(logger)  LIYEE_LOG__(logger, liyee::LogLevel::DEBUG)
 #define LIYEE_LOG_INFO(logger)   LIYEE_LOG__(logger, liyee::LogLevel::INFO)
 #define LIYEE_LOG_WARN(logger)   LIYEE_LOG__(logger, liyee::LogLevel::WARN)
@@ -25,7 +24,7 @@
 namespace liyee
 {
 
-std::chrono::time_point<std::chrono::steady_clock> start___ = std::chrono::steady_clock::now();
+static std::chrono::time_point<std::chrono::steady_clock> start___ = std::chrono::steady_clock::now();  //全局变量的作用范围为本文件，否则会出现重定义错误
 
 class LogLevel
 {
@@ -84,8 +83,8 @@ class LogFormatter
 {
 public:
   typedef std::shared_ptr<LogFormatter> ptr;
-  LogFormatter(std::ostream& m_outStream, const std::string& pattern);   //构造格式器，即根据”%d %t...“填充 m_fmt_items
-  void format(LogEvent& event); //遍历vector 组合日志的各个字段
+  LogFormatter(const std::string& pattern);   //构造格式器，即根据”%d %t...“填充 m_fmt_items
+  const std::string format(LogEvent& event); //遍历vector 组合日志的各个字段
 
 public:
   class FormatterItem
@@ -97,7 +96,6 @@ public:
   };
 
 private:
-  std::ostream& m_outStream;  //组合后的输出流
   std::string m_pattern;
   std::vector<FormatterItem::ptr> m_fmt_items;
 };
@@ -236,6 +234,7 @@ public:
   void SetLevel(const LogLevel::Level& level);
   void SetLevel(const std::string& name, const LogLevel::Level& level);
   void log(LogEvent& event);
+  const std::string& GetName() {return m_loggerName;}
 private:
   std::string m_loggerName;
   std::map<std::string, LogAppender::ptr> m_logappenders;

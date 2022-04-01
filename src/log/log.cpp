@@ -70,7 +70,7 @@ LogEvent::LogEvent(const std::string& loggerName, time_t timeStamp, uint32_t ela
 // std::string m_threadName;        // %n 线程名
 // std::string m_loggerName;        // %N 日志器名
 
-LogFormatter::LogFormatter(std::ostream& outStream, const std::string& pattern): m_outStream(outStream), m_pattern(pattern)
+LogFormatter::LogFormatter(const std::string& pattern): m_pattern(pattern)
 {
   std::string str;
 
@@ -123,13 +123,15 @@ LogFormatter::LogFormatter(std::ostream& outStream, const std::string& pattern):
   m_fmt_items.push_back(FormatterItem::ptr(new StringItem(str)));   //非%字符会continue跳过，处理最后一个字符串
 }
 
-void LogFormatter::format(LogEvent& event)
+const std::string LogFormatter::format(LogEvent& event)
 {
+  std::stringstream ss;
   for(auto i = m_fmt_items.begin(); i != m_fmt_items.end(); ++i)
   {
-    (*i)->format(m_outStream, event);
+    (*i)->format(ss, event);  //拼装日志的各个信息部分，不能直接输出到目的地,否则会因为多线程打断，多条日志信息杂糅
   }
-  m_outStream << event.getStringStream().str() << std::endl;
+  ss << event.getStringStream().str() << std::endl;
+  return ss.str();  //拼装好的信息
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -148,14 +150,14 @@ void LogAppender::SetLevel(const LogLevel::Level& level)
 
 StdOutAppender::StdOutAppender(const std::string& fmt, const LogLevel::Level& level): LogAppender(level)
 {
-  m_formatter.reset(new LogFormatter(std::cout, fmt));
+  m_formatter.reset(new LogFormatter(fmt));
 }
 
 
 void StdOutAppender::log(LogEvent& event)
 {
   if(event.getLevel() >= m_level)
-    m_formatter->format(event);
+    std::cout << m_formatter->format(event);
 }
 
 
@@ -163,7 +165,7 @@ FileAppender::FileAppender(const std::string& fmt, const std::string& fileName, 
               :m_fileName(fileName), LogAppender(level)
 {
   m_fileStream.open(fileName, std::ios::app);
-  m_formatter.reset(new LogFormatter(m_fileStream, fmt));
+  m_formatter.reset(new LogFormatter(fmt));
 }
 
 FileAppender::~FileAppender()
@@ -182,7 +184,7 @@ void FileAppender::ReopenFile(const std::string& fileName)
 void FileAppender::log(LogEvent& event)
 {
   if(event.getLevel() >= m_level)
-    m_formatter->format(event);
+    m_fileStream << m_formatter->format(event);
 }
 
 
@@ -244,6 +246,7 @@ void Logger::log(LogEvent& event)
 
 LoggerManager::LoggerManager()
 {
+  // 默认有root 日志器，输出到stdout
   m_loggers.insert(std::pair<std::string, Logger::ptr>("root", new Logger("root")));
   m_loggers["root"]->AddAppender("stdout", std::make_shared<StdOutAppender>("%T{%Y-%m-%d %H:%M:%S}\t%e\t%p\t%F:%L\t%t\t%f\t%n\t%N\t", LogLevel::Level::DEBUG));
 }
@@ -264,8 +267,11 @@ void LoggerManager::DelLogger(const std::string& name)
 Logger::ptr LoggerManager::GetLogger(const std::string& name)
 {
   auto i = m_loggers.find(name);
-  assert(i != m_loggers.end());
-  return i->second;
+  if(i != m_loggers.end())
+    return i->second;
+  else
+    AddLogger(name);  //新生成的logger默认没有appender
+  return m_loggers[name];
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////////////////////
